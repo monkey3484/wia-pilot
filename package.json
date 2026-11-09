@@ -1,0 +1,21 @@
+{
+  "name": "wia-pilot",
+  "version": "1.0.0",
+  "description": "위아 WIA 시범 운영 (선생님 화면 + 학생 웹 + 실시간 서버)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "compression": "^1.8.2",
+    "express": "^4.22.3",
+    "pg": "^8.23.1",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.4"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  }
+}

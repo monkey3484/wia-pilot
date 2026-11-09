@@ -1,0 +1,21 @@
+# Render 블루프린트: 추천 구성 (Starter 인스턴스 + 1GB 디스크)
+services:
+  - type: web
+    name: wia-pilot
+    runtime: node
+    plan: starter
+    region: singapore
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATA_DIR
+        value: /var/data
+      - key: TEACHER_ID
+        sync: false
+      - key: TEACHER_PW
+        sync: false
+    disk:
+      name: wia-data
+      mountPath: /var/data
+      sizeGB: 1
