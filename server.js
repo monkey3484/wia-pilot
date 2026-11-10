@@ -183,12 +183,12 @@ app.post('/api/account', (req, res) => {
   }
   metaChanged(); res.json({ ok: true, me: store.account.id });
 });
-/* 학생 입장용 QR (선생님 화면에서 씀) */
+/* 학생 입장용 QR (선생님 화면에서 씀). 학생 입장 화면 주소만 담고, 수업 코드와 이름은 학생이 직접 입력해요. 배포 주소는 PUBLIC_URL로 고정할 수 있어요. */
 app.get('/qr/:code.svg', async (req, res) => {
   const code = String(req.params.code).replace(/\D/g, '').slice(0, 6);
   const origin = (process.env.PUBLIC_URL || `${isHttps(req) ? 'https' : 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`).replace(/\/$/, '');
   try {
-    const svg = await QRCode.toString(`${origin}/j/${code}`, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#1d2447', light: '#ffffff' } });
+    const svg = await QRCode.toString(`${origin}/`, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#1d2447', light: '#ffffff' } });
     res.setHeader('Content-Type', 'image/svg+xml'); res.setHeader('Cache-Control', 'no-cache'); res.send(svg);
   } catch (e) { res.status(500).end(); }
 });
