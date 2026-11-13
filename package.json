@@ -10,6 +10,9 @@
   "dependencies": {
     "compression": "^1.8.2",
     "express": "^4.22.3",
+    "jszip": "^3.10.2",
+    "mammoth": "^1.13.0",
+    "multer": "^2.5.0",
     "pg": "^8.23.1",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.4"

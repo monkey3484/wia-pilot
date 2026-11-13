@@ -15,9 +15,9 @@
   }
   var q = stu && stu.code ? '?code=' + encodeURIComponent(stu.code) + '&sid=' + encodeURIComponent(stu.sid || '') : '';
   var snap = xhr('GET', '/api/snapshot' + q);
-  if (snap.data) { cache = snap.data.kv || {}; info.teacher = !!snap.data.teacher; info.me = snap.data.me || ''; } else info.offline = true;
+  if (snap.data) { cache = snap.data.kv || {}; info.teacher = !!snap.data.teacher; info.me = snap.data.me || ''; info.name = snap.data.name || ''; info.ai = !!snap.data.ai; info.aiTest = !!snap.data.aiTest; info.limits = snap.data.limits || {}; } else info.offline = true;
   function keys() { var ks = Object.keys(cache); if (real) for (var i = 0; i < real.length; i++) { var k = real.key(i); if (k && !SYNC(k) && ks.indexOf(k) < 0) ks.push(k); } return ks; }
-  var socket = window.io ? io({ auth: stu && stu.code ? { code: stu.code, sid: stu.sid } : {}, transports: ['websocket', 'polling'], reconnectionDelayMax: 3000 }) : null;
+  var socket = window.io ? io({ auth: stu && stu.code ? { code: stu.code, sid: stu.sid } : (/[?&]tv=1/.test(location.search) ? { tv: 1 } : {}), transports: ['websocket', 'polling'], reconnectionDelayMax: 3000 }) : null;
   var store = {
     getItem: function (k) { k = String(k); if (SYNC(k)) return Object.prototype.hasOwnProperty.call(cache, k) ? cache[k] : null; return real ? real.getItem(k) : null; },
     setItem: function (k, v) { k = String(k); v = String(v); if (SYNC(k)) { if (cache[k] === v) return; cache[k] = v; if (socket) socket.emit('set', { key: k, value: v }); return; } if (real) real.setItem(k, v); },
@@ -48,6 +48,15 @@
       }).catch(function () {});
     });
     socket.on('disconnect', function () { conn(false); });
+    /* 서버 안내 (정원 초과, 저장 한도 등) */
+    var nb = null, nt = 0;
+    socket.on('notice', function (m) {
+      if (!m || !m.text) return;
+      if (!nb) { nb = document.createElement('div'); nb.id = 'wia-notice'; nb.setAttribute('role', 'alert'); nb.style.cssText = 'position:fixed;left:50%;top:calc(16px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:100;max-width:min(560px,calc(100vw - 32px));background:#1d2447;color:#fff;font:600 15px/1.5 system-ui,sans-serif;padding:12px 18px;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.25);text-align:center'; (document.body || document.documentElement).appendChild(nb); }
+      nb.textContent = String(m.text); nb.hidden = false; clearTimeout(nt); nt = setTimeout(function () { nb.hidden = true; }, 6000);
+    });
+    /* 관리자가 계정을 멈추거나 로그아웃시키면 로그인 화면으로 */
+    socket.on('kicked', function () { setTimeout(function () { location.reload(); }, 300); });
     socket.on('connect_error', function () { conn(false); });
   }
   window.WIA_STORE = store;
@@ -59,7 +68,7 @@
   window.WIA_SRV = { info: info, xhr: xhr, socket: socket, confirm: confirm };
 })();
 </script>
-<style>body.t-mode > #wia-conn:not([hidden]) { display: block !important; }</style>
+<style>body.t-mode > #wia-conn:not([hidden]), body.t-mode > #wia-notice:not([hidden]) { display: block !important; }</style>
 
 <title>위아 WIA</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1066,14 +1075,15 @@ h3 { font-size: 20px; }
         <span class="ls-eyebrow">FOR TEACHERS</span>
         <h1>반가워요, 선생님!</h1>
         <p class="ls-sub">오늘도 위아와 함께 수업을 시작해 볼까요?</p>
-        <label class="entry-l" for="tch-id">아이디</label>
-        <input id="tch-id" class="input" autocomplete="username" placeholder="아이디를 입력해 주세요">
+        <label class="entry-l" for="tch-id">이메일</label>
+        <input id="tch-id" class="input" type="text" inputmode="email" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="가입한 이메일 (예전 아이디도 돼요)">
         <label class="entry-l" for="tch-pw">비밀번호</label>
         <input id="tch-pw" class="input" type="password" autocomplete="current-password" placeholder="비밀번호를 입력해 주세요">
         <p class="entry-err" id="tch-err" role="alert" hidden></p>
-        <p class="ls-note" id="tch-note" role="status" hidden>회원가입은 아직 준비 중이에요. 안내받은 아이디와 비밀번호로 로그인해 주세요.</p>
+        <p class="ls-note" id="tch-note" role="status" hidden>회원가입 화면으로 이동해요.</p>
         <button class="btn primary" type="submit">로그인</button>
         <button class="btn" type="button" id="tch-signup">회원가입</button>
+        <a href="/forgot" id="tch-forgot" style="align-self:center;font-size:14px;color:var(--muted);text-decoration:underline;text-underline-offset:3px;margin-top:2px">비밀번호를 잊으셨나요?</a>
       </div>
     </div>
   </form>
@@ -3473,7 +3483,7 @@ DB.lessons.forEach(function (l) {
   if (l && l.tplId === 'fav' && l.firstNote === 'AI가 여러 캐릭터를 알려줬네요! 우리 반 영어 설문에 넣을 5명을 고르려면, 후보를 비교할 정보가 더 필요해요.') { l.firstNote = LESSON_FAV.firstNote; l.contentV = LESSON_FAV.contentV; }
   (l.steps || []).forEach(function (st) { if (st.say) st.say = st.say.replace('QR을 찍거나 ', ''); }); });
 var ACC_KEY = 'wia-account';
-function acct() { return { id: (window.WIA_SRV && WIA_SRV.info.me) || '' }; }
+function acct() { var I = (window.WIA_SRV && WIA_SRV.info) || {}; return { id: I.me || '', name: I.name || '', email: /@/.test(I.me || '') }; }
 function ensureRooms() {
   /* 클래스 = 반, 수업 자료 = 활동 묶음. 예전 판에서 수업 자료마다 자동으로 만들던 이름 없는 방은 정리해요. */
   DB.results = DB.results || [];
@@ -3729,7 +3739,7 @@ function render() {
   var hdr = $('.top'); if (hdr) hdr.hidden = h.indexOf('live-') === 0;
   $('#root').innerHTML = html;
   var apg = $('.pg[aria-current="true"]'); if (apg) { var strip = apg.parentNode; strip.scrollLeft = apg.offsetLeft - strip.offsetLeft - 40; }
-  var meN = $('#me-id'); if (meN) meN.textContent = acct().id;
+  var meN = $('#me-id'); if (meN) { var acN = acct(); meN.textContent = acN.name ? acN.name + ' 선생님' : acN.id; meN.title = acN.id; }
   var navK = (h.indexOf('edit-') === 0 || h === 'library' || h === 'create') ? 'library' : 'home';
   Array.prototype.forEach.call(document.querySelectorAll('[data-nav]'), function (n) { n.setAttribute('aria-current', n.dataset.nav === navK ? 'page' : 'false'); });
   renderModal();
@@ -3843,7 +3853,7 @@ function vCreate() {
   if (UI.gen >= 0) {
     var G = UI.genInfo, t = UI.gen, N = G.n;
     var stg = [['올린 자료 읽기', '파일 ' + G.files + '개', 0, 1], ['핵심 내용 고르기', '', 1, 2], ['교육 자료 만들기', '', 2, 2 + N], ['AI 활동 7단계 채우기', '', 2 + N, 3 + N], ['편집 화면 준비', '', 3 + N, 4 + N]];
-    return '<div class="gen"><div class="cup m-action"></div><h1>위아가 교육 자료 ' + N + '장을 만들고 있어요</h1><ol>' + stg.map(function (x, i) {
+    return '<div class="gen"><div class="cup m-action"></div><h1>위아가 교육 자료 ' + N + '장을 만들고 있어요</h1>' + (G.ai ? '<p class="meta" style="text-align:center;margin:-4px 0 12px">AI가 올린 자료를 읽고 그 안의 내용으로만 만들어요. 1~3분 걸릴 수 있어요. 이 화면을 닫지 말아 주세요.</p>' : '') + '<ol>' + stg.map(function (x, i) {
       var ok = t >= x[3], now = !ok && t >= x[2], right = ok ? '완료' : now ? (i === 2 ? (t - 2) + ' / ' + N + '장' : '진행 중') : x[1];
       return '<li class="' + (ok ? 'ok' : now ? 'now' : '') + '"><span>' + (i + 1) + '. ' + x[0] + '</span><span>' + right + '</span></li>';
     }).join('') + '</ol></div>';
@@ -3868,7 +3878,8 @@ function vCreate() {
     '<div><span class="fl">이렇게 나눠서 만들어요<small>만든 뒤 순서와 종류를 바꿀 수 있어요</small></span><div class="plan">' + plan.map(function (k, i) { return '<span class="k-' + k + '">' + (i + 1) + ' ' + PG_LABEL[k] + '</span>'; }).join('') + '</div></div>' +
     '<p class="hint">교육 자료와 함께 “AI한테 잘 묻기” 활동 7단계도 같은 주제로 만들어져요.</p></section>' +
     '<div class="form-foot"><button class="btn text" data-go="library">취소</button><span class="meta">' + (nf ? '자료 ' + nf + '개 → 교육 자료 ' + f.count + '장' : '자료를 하나 이상 올리면 만들 수 있어요') + '</span><button class="btn primary lg" data-act="generate"' + (nf ? '' : ' disabled') + '>AI로 콘텐츠 만들기</button></div>' +
-    '<p class="hint" style="text-align:center">시안에서는 실제 AI 대신, 올린 자료 이름과 TXT 파일의 글로 틀을 채워요. 채우지 못한 곳은 노란색 “확인 필요”로 표시돼요.</p></div></div>';
+    (f.err ? '<p class="hint" role="alert" style="text-align:center;color:var(--weak);background:var(--weak-bg);border-radius:10px;padding:10px 14px">' + esc(f.err) + '</p>' : '') +
+    '<p class="hint" style="text-align:center">' + (window.WIA_SRV && WIA_SRV.info.ai ? 'AI가 올린 자료 안의 내용으로만 만들어요. 자료에 없어서 채우지 못한 곳은 노란색 “확인 필요”로 표시돼요. PDF·워드(docx)·PPT(pptx)·한글(hwpx)·TXT·그림을 읽을 수 있어요. 옛 HWP·PPT 파일은 PDF로 저장해서 올려 주세요.' : '지금은 AI 연결 전 시범 모드예요. 올린 자료 이름과 TXT 파일의 글로 틀을 채워요. 채우지 못한 곳은 노란색 “확인 필요”로 표시돼요.') + '</p></div></div>';
 }
 
 /* ---------- 콘텐츠 추가: 자료·장수 → 교육 자료 만들기 ---------- */
@@ -3900,7 +3911,9 @@ function addFiles(list) {
   };
   arr.forEach(function (file) {
     if (F.files.some(function (x) { return x.name === file.name && x.size === file.size; })) { if (--left === 0) done(); return; }
-    var rec = { name: file.name, size: file.size, text: '' }; F.files.push(rec); added++;
+    var lim = (window.WIA_SRV && WIA_SRV.info.limits) || {};
+    if (lim.maxFiles && F.files.length >= lim.maxFiles) { if (!addFiles.warned) { addFiles.warned = 1; setTimeout(function () { addFiles.warned = 0; }, 500); toast('자료는 한 번에 ' + lim.maxFiles + '개까지 올릴 수 있어요'); } if (--left === 0) done(); return; }
+    var rec = { name: file.name, size: file.size, text: '' }; try { Object.defineProperty(rec, 'file', { value: file, enumerable: false }); } catch (e) {} F.files.push(rec); added++;
     if (/\.(txt|md)$/i.test(file.name) || /^text\//.test(file.type)) {
       var r = new FileReader();
       r.onload = function () { rec.text = String(r.result || '').slice(0, 20000); if (--left === 0) done(); };
@@ -3954,6 +3967,34 @@ function makeContent(F) {
   l.files = F.files.map(function (x) { return { name: x.name, size: x.size }; });
   l.req = F.req;
   l.pages = buildPages(F, isEx);
+  return l;
+}
+/* 서버(AI)가 만든 결과를 기본 틀에 합쳐요. 모양이 어긋난 칸은 기본 틀을 그대로 둬요. */
+function applyAI(l, R, F) {
+  if (!R) return l;
+  var S = function (v, n) { return String(v == null ? '' : v).slice(0, n || 2000); };
+  if (Array.isArray(R.pages) && R.pages.length) {
+    l.pages = R.pages.map(function (p) {
+      var kind = PG_LABEL[p.kind] ? p.kind : 'concept';
+      var o = { title: S(p.title, 200), body: S(p.body), key: S(p.key, 300), src: S(p.src, 300), note: S(p.note, 600) };
+      if (kind === 'check') { o.q = S(p.q, 500); o.opts = (p.opts || []).slice(0, 3).map(function (x) { return S(x, 300); }); while (o.opts.length < 3) o.opts.push('(확인 필요: 보기)'); o.ans = Math.min(2, Math.max(0, +p.ans || 0)); o.why = S(p.why, 600); }
+      return pg(kind, o);
+    });
+    delete l.order;
+  }
+  var A = R.activity || {};
+  if (A.hw) { l.hw = S(A.hw, 300); if (l.steps && l.steps[1]) l.steps[1].say = '오늘 숙제는 “' + l.hw + '”예요.'; }
+  if (A.firstAnswer) l.firstAnswer = S(A.firstAnswer, 3000);
+  if (A.newAnswer) l.newAnswer = S(A.newAnswer, 3000);
+  if (A.tpl && /\[빈칸1\]/.test(A.tpl) && /\[빈칸2\]/.test(A.tpl) && /\[빈칸3\]/.test(A.tpl) && Array.isArray(A.slots) && A.slots.length >= 3) {
+    l.tpl = S(A.tpl, 400); delete l.firstText;
+    l.slots = A.slots.slice(0, 3).map(function (sl) { return { name: S(sl.name, 40), opts: (sl.opts || []).slice(0, 3).map(function (o) { return { text: S(o.text, 80), q: o.q === 'good' || o.q === 'weak' ? o.q : 'ok', fb: S(o.fb, 200) }; }) }; });
+    l.first = l.slots.map(function (sl) { var w = -1; sl.opts.forEach(function (o, i) { if (w < 0 && o.q === 'weak') w = i; }); if (w < 0) sl.opts.forEach(function (o, i) { if (w < 0 && o.q !== 'good') w = i; }); return Math.max(0, w); });
+  }
+  if (Array.isArray(A.take) && A.take.length) { l.take = A.take.slice(0, 3).map(function (x) { return S(x, 200); }); while (l.take.length < 3) l.take.push(l.take[l.take.length - 1]); }
+  if (Array.isArray(A.cards) && A.cards.length >= 3) l.cards = A.cards.slice(0, 3).map(function (c) { return { label: S(c.label, 30), pre: S(c.pre, 300), tgt: S(c.tgt, 300), post: S(c.post, 300), right: c.right === 'sus' ? 'sus' : 'ok', why: S(c.why, 400) }; });
+  if (A.q7) l.q7 = S(A.q7, 300); if (A.q7ph) l.q7ph = S(A.q7ph, 300); if (A.done) l.done = S(A.done, 300);
+  if (!F.title.trim() && R.title) l.title = S(R.title, 120);
   return l;
 }
 function tx(s) { return esc(s).replace(/\(확인 필요[^)]*\)/g, function (m) { return '<mark class="todo">' + m + '</mark>'; }); }
@@ -4134,7 +4175,8 @@ function renderModal() {
   if (A.mode === 'account') {
     var ac = acct();
     m.innerHTML = shell('<h2>계정 설정</h2>' +
-      '<div class="acc-sec"><div><label class="fl" for="acc-id">아이디<small>영문·숫자 4~20자</small></label><input id="acc-id" class="inp" autocomplete="username" maxlength="20" value="' + esc(ac.id) + '"></div></div>' +
+      '<div class="acc-sec">' + (ac.email ? '<div><label class="fl" for="acc-id">이메일<small>로그인 아이디 · 바꿀 수 없어요</small></label><input id="acc-id" class="inp" autocomplete="username" readonly value="' + esc(ac.id) + '"></div>' : '<div><label class="fl" for="acc-id">아이디<small>영문·숫자 4~20자</small></label><input id="acc-id" class="inp" autocomplete="username" maxlength="20" value="' + esc(ac.id) + '"></div>') +
+      '<div><label class="fl" for="acc-name">이름<small>화면 위쪽에 보여요</small></label><input id="acc-name" class="inp" maxlength="30" value="' + esc(ac.name) + '"></div></div>' +
       '<div class="acc-sec"><div><label class="fl" for="acc-new">새 비밀번호<small>바꾸지 않으려면 비워 두세요 · 8자 이상</small></label><input id="acc-new" class="inp" type="password" autocomplete="new-password"></div>' +
       '<div><label class="fl" for="acc-new2">새 비밀번호 확인</label><input id="acc-new2" class="inp" type="password" autocomplete="new-password"></div></div>' +
       '<div class="acc-sec"><div><label class="fl" for="acc-cur">현재 비밀번호<small>바꾸려면 꼭 입력해요</small></label><input id="acc-cur" class="inp" type="password" autocomplete="current-password"></div>' +
@@ -4654,7 +4696,7 @@ document.addEventListener('click', function (e) {
   if (a === 'openTV') { var tw = window.open('/teacher?tv=1', 'wia-tv', 'popup=yes,width=1280,height=760'); if (!tw) toast('팝업이 막혔어요. 주소창의 팝업 허용을 눌러 주세요'); else toast('새 창을 TV 쪽으로 끌어다 놓고 “전체 화면”을 누르세요'); return; }
   if (a === 'tvFull') { try { window.document.documentElement.requestFullscreen().catch(function () { toast('F11 키로 전체 화면을 켜 주세요'); }); } catch (x) { toast('F11 키로 전체 화면을 켜 주세요'); } return; }
   if (a === 'copyLink') { var su = location.origin + '/'; try { navigator.clipboard.writeText(su).then(function () { toast('학생 주소를 복사했어요: ' + su); }, function () { toast('학생 주소: ' + su); }); } catch (x) { toast('학생 주소: ' + su); } return; }
-  if (a === 'account') { UI.assign = { mode: 'account' }; renderModal(); $('#acc-id').focus(); return; }
+  if (a === 'account') { UI.assign = { mode: 'account' }; renderModal(); (acct().email ? $('#acc-name') : $('#acc-id')).focus(); return; }
   if (a === 'doAccount') { saveAccount(); return; }
   if (a === 'renLes') { UI.assign = { mode: 'renLes', les: v }; renderModal(); var ri = $('#rn-t'); ri.focus(); ri.select(); return; }
   if (a === 'doRenLes') { renameLes(); return; }
@@ -4678,17 +4720,36 @@ document.addEventListener('click', function (e) {
   if (a === 'generate') {
     var F = UI.form; if (!F || !F.files.length) { toast('수업 자료를 하나 이상 올려 주세요'); return; }
     if (!F.title.trim()) F.title = F.files[0].name.replace(/\.[^.]+$/, '').replace(/_+/g, ' ');
-    var T = F.count + 4; UI.genInfo = { n: F.count, files: F.files.length };
+    var T = F.count + 4, real = F.files.filter(function (x) { return x.file; });
+    F.err = '';
+    var useSrv = !!(window.WIA_SRV && real.length && !F.ex);
+    UI.genInfo = { n: F.count, files: F.files.length, ai: useSrv && !!WIA_SRV.info.ai };
     UI.gen = 0; render(); window.scrollTo(0, 0);
+    var resp = useSrv ? null : { ok: true, mode: 'local' }, slow = UI.genInfo.ai;
+    var finish = function () {
+      clearInterval(tick);
+      if (!resp.ok) { UI.gen = -1; F.err = resp.error || '자료를 만들지 못했어요. 잠시 뒤에 다시 해 주세요.'; if (location.hash === '#create') render(); toast('만들지 못했어요'); return; }
+      var l = makeContent(F);
+      if (resp.mode === 'ai' && resp.result) { applyAI(l, resp.result, F); l.aiGen = { id: resp.id, at: Date.now(), gaps: (resp.result.gaps || []).length }; }
+      DB.lessons.unshift(l);
+      save(); UI.gen = -1; UI.form = null; UI.editId = null;
+      go('edit-' + l.id);
+      var skipped = (resp.files || []).filter(function (x) { return x.skip; });
+      toast(skipped.length ? '“' + skipped[0].name + '” 등 ' + skipped.length + '개는 읽지 못했어요. 나머지 자료로 ' + l.pages.length + '장을 만들었어요.' : (resp.mode === 'ai' ? 'AI가 교육 자료 ' + l.pages.length + '장을 만들었어요. 노란 “확인 필요”부터 고쳐 보세요.' : '교육 자료 ' + l.pages.length + '장을 만들었어요. 한 장씩 고쳐 보세요.'));
+    };
     var tick = setInterval(function () {
-      UI.gen++; if (location.hash === '#create') render();
-      if (UI.gen > T) {
-        clearInterval(tick);
-        var l = makeContent(F); DB.lessons.unshift(l);
-        save(); UI.gen = -1; UI.form = null; UI.editId = null;
-        go('edit-' + l.id); toast('교육 자료 ' + l.pages.length + '장을 만들었어요. 한 장씩 고쳐 보세요.');
-      }
-    }, 260);
+      if (UI.gen < T - 1 || resp) { UI.gen++; if (location.hash === '#create') render(); }
+      if (UI.gen > T && resp) finish();
+    }, slow ? 1800 : 260);
+    if (useSrv) {
+      var fd = new FormData();
+      real.forEach(function (x) { fd.append('files', x.file, x.name); });
+      fd.append('meta', JSON.stringify({ title: F.title, grade: F.grade, subject: F.subject, kind: F.kind, req: F.req, count: F.count, names: real.map(function (x) { return x.name; }) }));
+      fetch('/api/ai/generate', { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(function (r) { return r.json().catch(function () { return { ok: false, error: '서버 답을 읽지 못했어요 (' + r.status + ').' }; }); })
+        .catch(function () { return { ok: false, error: '서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.' }; })
+        .then(function (d) { resp = d || { ok: false }; UI.gen = T + 1; finish(); });
+    }
     return;
   }
   if (a === 'step') { UI.step = tokOf(v); UI.ek = null; resetPv(); render(); return; }
@@ -4754,19 +4815,19 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 'Enter' && e.target && e.target.id === 'f-count') { e.preventDefault(); e.target.blur(); }
 });
 function saveAccount() {
-  var ac = acct(), id = $('#acc-id').value.trim(), np = $('#acc-new').value, np2 = $('#acc-new2').value, cur = $('#acc-cur').value;
+  var ac = acct(), id = $('#acc-id').value.trim(), nm = $('#acc-name').value.trim(), np = $('#acc-new').value, np2 = $('#acc-new2').value, cur = $('#acc-cur').value;
   var bad = function (t, f) { var e = $('#acc-err'); e.textContent = t; e.hidden = false; if (f) $(f).focus(); };
-  if (!/^[A-Za-z0-9]{4,20}$/.test(id)) return bad('아이디는 영문과 숫자로 4~20자를 써 주세요.', '#acc-id');
+  if (!ac.email && !/^[A-Za-z0-9]{4,20}$/.test(id)) return bad('아이디는 영문과 숫자로 4~20자를 써 주세요.', '#acc-id');
   if (np || np2) {
     if (np.length < 8) return bad('새 비밀번호는 8자 이상으로 써 주세요.', '#acc-new');
     if (np !== np2) return bad('새 비밀번호 두 칸이 서로 달라요.', '#acc-new2');
   }
-  if (id === ac.id && !np) return bad('바뀐 내용이 없어요.', '#acc-id');
+  if (id === ac.id && nm === ac.name && !np) return bad('바뀐 내용이 없어요.', ac.email ? '#acc-name' : '#acc-id');
   if (!cur) return bad('현재 비밀번호를 입력해 주세요.', '#acc-cur');
-  var r = WIA_SRV.xhr('POST', '/api/account', { id: id, cur: cur, next: np || '' });
+  var r = WIA_SRV.xhr('POST', '/api/account', { id: id, name: nm, cur: cur, next: np || '' });
   if (!r.data || !r.data.ok) return bad((r.data && r.data.error) || '저장하지 못했어요. 인터넷 연결을 확인해 주세요.', '#acc-cur');
-  WIA_SRV.info.me = r.data.me; UI.assign = null; render();
-  toast(np ? '비밀번호를 바꿨어요. 다른 기기의 로그인은 끊어졌어요' : '아이디를 “' + id + '”(으)로 바꿨어요');
+  WIA_SRV.info.me = r.data.me; WIA_SRV.info.name = r.data.name || ''; UI.assign = null; render();
+  toast(np ? '비밀번호를 바꿨어요. 다른 기기의 로그인은 끊어졌어요' : '계정 정보를 저장했어요');
 }
 function renameLes() {
   var inp = $('#rn-t'), nmv = inp ? inp.value.trim() : '', rl = UI.assign && L(UI.assign.les);
@@ -4857,6 +4918,7 @@ render();
     var r = window.WIA_SRV ? WIA_SRV.xhr('GET', '/api/live?code=' + encodeURIComponent(code)) : { status: 0, data: null };
     if (r.status === 0) { lastErr = '인터넷 연결을 확인해 주세요.'; return null; }
     if (r.status === 429) { lastErr = (r.data && r.data.error) || '잠시 뒤에 다시 해 주세요.'; return null; }
+    if (r.data && !r.data.live && r.data.error) { lastErr = r.data.error; return null; }
     var lv = null; try { lv = r.data && r.data.live ? JSON.parse(r.data.live) : null; } catch (e) {}
     return lv && lv.lesson ? lv : null;
   }
@@ -4933,12 +4995,12 @@ render();
       location.reload();
     }, 40);
   });
-  byId('tch-signup').addEventListener('click', function () { byId('tch-err').hidden = true; byId('tch-note').hidden = false; });
+  byId('tch-signup').addEventListener('click', function () { location.href = '/signup'; });
   byId('entry-tch').addEventListener('submit', function (e) {
     e.preventDefault();
     var r = WIA_SRV.xhr('POST', '/api/login', { id: byId('tch-id').value.trim(), pw: byId('tch-pw').value });
     if (r.data && r.data.ok) { ss('wia-student', null); ss('wia-auth', '1'); location.replace('/teacher'); }
-    else err('tch-err', (r.data && r.data.error) || '서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.');
+    else err('tch-err', (r.data && r.data.error) || (r.status === 0 ? '서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.' : '로그인하지 못했어요. 잠시 뒤에 다시 해 주세요.'));
   });
 })();
 </script>
